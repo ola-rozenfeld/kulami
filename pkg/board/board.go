@@ -45,6 +45,55 @@ func (b *KulamiBoard) BlackScore() int {
 	return b.blackScore
 }
 
+// ScoreDiff returns the current score difference in favor of the given player.
+func (b *KulamiBoard) ScoreDiff(isRed bool) int {
+	if isRed {
+		return b.redScore - b.blackScore
+	}
+	return b.blackScore - b.redScore
+}
+
+// NumMoves returns the number of moves made by both players.
+func (b *KulamiBoard) NumMoves() int {
+	return len(b.moves)
+}
+
+// IsRedsTurn returns whether it is Red player's turn. On the first turn,
+// it returns true, however Black moving first is also legal.
+func (b *KulamiBoard) IsRedsTurn() bool {
+	n := b.NumMoves()
+	if n == 0 {
+		return true
+	}
+	m := b.moves[0]
+	redFirst := b.marbles[m.Row][m.Col] == kRedMarble
+	return redFirst == (n%2 == 0)
+}
+
+// Clone deep copies a board. Useful for an AI to modify while thinking.
+func (b *KulamiBoard) Clone() *KulamiBoard {
+	res := &KulamiBoard{
+		end:        b.end,
+		tiles:      make([][]int, len(b.tiles)),
+		marbles:    make([][]int, len(b.marbles)),
+		moves:      make([]Coord, len(b.moves)),
+		redScore:   b.redScore,
+		blackScore: b.blackScore,
+		tileScore:  make([]int, len(b.tileScore)),
+	}
+	for i := range res.tiles {
+		res.tiles[i] = make([]int, len(b.tiles[i]))
+		copy(res.tiles[i], b.tiles[i])
+	}
+	for i := range res.marbles {
+		res.marbles[i] = make([]int, len(b.marbles[i]))
+		copy(res.marbles[i], b.marbles[i])
+	}
+	copy(res.moves, b.moves)
+	copy(res.tileScore, b.tileScore)
+	return res
+}
+
 // TileLocation represents a complete location of a tile inside a board.
 type TileLocation struct {
 	Coord       Coord
@@ -231,10 +280,11 @@ func (b *KulamiBoard) String() string {
 // Apply a move to the board, if legal.
 func (b *KulamiBoard) Move(c Coord, isRed bool) error {
 	last := Coord{Row: -1, Col: -1}
-	if len(b.moves) != 0 {
-		last = b.moves[len(b.moves)-1]
+	numMoves := b.NumMoves()
+	if numMoves != 0 {
+		last = b.moves[numMoves-1]
 	}
-	if last.Row >= 0 && isRed == (b.marbles[last.Row][last.Col] == kRedMarble) {
+	if numMoves > 0 && isRed == (b.marbles[last.Row][last.Col] == kRedMarble) {
 		return fmt.Errorf("it is now the other player's turn")
 	}
 	if len(b.moves) == kNumMarbles*2 {
@@ -250,7 +300,7 @@ func (b *KulamiBoard) Move(c Coord, isRed bool) error {
 		return fmt.Errorf("%d,%d is not a legal move, the tile is blocked by the other player", c.Row, c.Col)
 	}
 	if len(b.moves) > 1 {
-		pre := b.moves[len(b.moves)-2]
+		pre := b.moves[numMoves-2]
 		if b.tiles[c.Row][c.Col] == b.tiles[pre.Row][pre.Col] {
 			return fmt.Errorf("%d,%d is not a legal move, the tile is blocked by you", c.Row, c.Col)
 		}
@@ -290,11 +340,12 @@ func (b *KulamiBoard) Move(c Coord, isRed bool) error {
 
 // UndoLastMove removes the last move from the board, if possible.
 func (b *KulamiBoard) UndoLastMove() {
-	if len(b.moves) == 0 {
+	numMoves := b.NumMoves()
+	if numMoves == 0 {
 		return
 	}
-	c := b.moves[len(b.moves)-1]
-	b.moves = b.moves[0 : len(b.moves)-1]
+	c := b.moves[numMoves-1]
+	b.moves = b.moves[0 : numMoves-1]
 	isRed := b.marbles[c.Row][c.Col] == kRedMarble
 	b.marbles[c.Row][c.Col] = kEmptySpace
 	tile := b.tiles[c.Row][c.Col]
@@ -326,7 +377,8 @@ func (b *KulamiBoard) UndoLastMove() {
 // LegalMoves returns all legal move candidates for the next move.
 func (b *KulamiBoard) LegalMoves() []Coord {
 	var res []Coord
-	if len(b.moves) == 0 {
+	numMoves := b.NumMoves()
+	if numMoves == 0 {
 		// All moves on the board are legal as a first move.
 		for row, cols := range b.marbles {
 			for col, v := range cols {
@@ -337,13 +389,13 @@ func (b *KulamiBoard) LegalMoves() []Coord {
 		}
 		return res
 	}
-	last := b.moves[len(b.moves)-1]
+	last := b.moves[numMoves-1]
 	if len(b.moves) == kNumMarbles*2 {
 		return res // Game over, out of marbles.
 	}
 	prev := Coord{Row: -1, Col: -1}
-	if len(b.moves) > 1 {
-		prev = b.moves[len(b.moves)-2]
+	if numMoves > 1 {
+		prev = b.moves[numMoves-2]
 	}
 	for row := 0; row <= b.end.Row; row++ {
 		if b.marbles[row][last.Col] == kEmptySpace &&
