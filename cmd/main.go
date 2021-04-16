@@ -2,16 +2,38 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/ola-rozenfeld/kulami/pkg/ai"
 	"github.com/ola-rozenfeld/kulami/pkg/board"
 )
 
+// AIType is the supported levels of AI.
+type AIType string
+
+const (
+	monkey      AIType = "monkey"
+	greedy      AIType = "greedy"
+	calculating AIType = "calculating"
+)
+
+var aiTypes = []AIType{monkey, greedy, calculating}
+
+var (
+	aiOpp  = flag.Bool("ai_opp", true, "Whether to play vs. an AI opponent or hot-seat.")
+	aiType = flag.String("ai_type", string(monkey), fmt.Sprintf("Type/level of opponent AI. Supported values: %v", aiTypes))
+)
+
 func main() {
+	flag.Parse()
+	rand.Seed(time.Now().UTC().UnixNano())
 	sampleBoard := []board.TileLocation{
 		// 6s
 		{Coord: board.Coord{Row: 4, Col: 0}},
@@ -42,34 +64,62 @@ func main() {
 	player := 0
 	playerNames := []string{"Red", "Black"}
 	reader := bufio.NewReader(os.Stdin)
+	round := 1
+	var aiEngine ai.KulamiAI
+	aiPlayer := 1 //rand.Intn(2)
+	if *aiOpp {
+		fmt.Printf("Playing vs. the %s AI. The AI opponent is playing %s.\n", *aiType, playerNames[aiPlayer])
+		switch *aiType {
+		case string(monkey):
+			aiEngine = ai.NewMonkeyAI(b)
+		case string(greedy):
+			aiEngine = ai.NewGreedyAI(b)
+		case string(calculating):
+			aiEngine = ai.NewCalculatingAI(b)
+		}
+	}
 	for {
 		fmt.Printf("%s", b)
-		fmt.Printf("It is %s to move. Type `resign` to resign, or a move coordinate: ", playerNames[player])
-		text, _ := reader.ReadString('\n')
-		if strings.TrimSpace(text) == "resign" {
-			fmt.Printf("%s resigned. %s wins.\n", playerNames[player], playerNames[1-player])
-			return
+		fmt.Printf("Round %d: it is %s to move. ", round, playerNames[player])
+		var move board.Coord
+		var err error
+		if *aiOpp && player == aiPlayer {
+			if move, err = aiEngine.SuggestMove(); err != nil {
+				log.Fatalf("An AI error: %v", err)
+			}
+			fmt.Printf("AI chooses %d,%d.\n", move.Row, move.Col)
+		} else {
+			fmt.Printf("Type `resign` to resign, or a move coordinate: ")
+			text, _ := reader.ReadString('\n')
+			if strings.TrimSpace(text) == "resign" {
+				fmt.Printf("%s resigned. %s wins.\n", playerNames[player], playerNames[1-player])
+				return
+			}
+			toks := strings.Split(strings.TrimSpace(text), ",")
+			if len(toks) != 2 {
+				fmt.Println("Error: expected coordinate as Row,Col")
+				continue
+			}
+			row, err := strconv.Atoi(toks[0])
+			if err != nil {
+				fmt.Printf("Error %v: expected coordinate as Row,Col\n", err)
+				continue
+			}
+			col, err := strconv.Atoi(toks[1])
+			if err != nil {
+				fmt.Printf("Error %v: expected coordinate as Row,Col\n", err)
+				continue
+			}
+			move = board.Coord{Row: row, Col: col}
 		}
-		toks := strings.Split(strings.TrimSpace(text), ",")
-		if len(toks) != 2 {
-			fmt.Println("Error: expected coordinate as Row,Col")
-			continue
-		}
-		row, err := strconv.Atoi(toks[0])
-		if err != nil {
-			fmt.Printf("Error %v: expected coordinate as Row,Col\n", err)
-			continue
-		}
-		col, err := strconv.Atoi(toks[1])
-		if err != nil {
-			fmt.Printf("Error %v: expected coordinate as Row,Col\n", err)
-			continue
-		}
-		if err := b.Move(board.Coord{Row: row, Col: col}, player == 0); err != nil {
+		if err := b.Move(move, player == 0); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
 		player = 1 - player
+		if player == 0 {
+			round++
+		}
 		if len(b.LegalMoves()) == 0 {
 			redScore := b.RedScore()
 			blackScore := b.BlackScore()
